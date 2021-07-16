@@ -43,3 +43,6 @@ download.file(url, tmp_filename)
 dat <- read_csv(tmp_filename)
 file.remove(tmp_filename)
 
+file.copy(file.path(path, "murders.csv"), getwd())
+setwd("data")
+file.copy(file.path(path, filename), getwd())
