@@ -1,0 +1,1 @@
+Manejo de datos: Cargar a R, limpiar y utilizar.
