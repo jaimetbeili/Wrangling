@@ -351,9 +351,236 @@ pattern <- "^[4-7]\\s*'\\s*\\d{1,2}$"
 index <- str_detect(converted, pattern)
 mean(index)
 
+#Tema 3
+#Ya aprendimos a poner los datos en pies y pulgadas, pero queremos convertirlo a pulgadas
+#Usemos un caso simple para ver como se hace.
+s <- c("5'10", "6'1")
+tab <- data.frame(x = s)
+#Los separamos en pies y pulgadas.
+tab %>% separate(x, c("feet", "inches"), sep = "'")
+#Podemos hacer exactamente lo mismo con extract.
+tab %>% extract(x, c("feet", "inches"), regex = "(\\d)'(\\d{1,2})")
+#Usamos extract porque asi involucramos grupos, lo que nos da mayor flexibilidad.
+#Por ejemplo, si tenemos estos datos y queremos solo los numeros separate
+#no funciona, extract si.
+s <- c("5'10", "6'1\"","5'8inches")
+tab <- data.frame(x = s)
+tab %>% separate(x, c("feet", "inches"), sep = "'")
+tab %>% extract(x, c("feet", "inches"), regex = "(\\d)'(\\d{1,2})")
 
+#En la seccion pasada vimos que quedaban algunos temas por resolver. Aqui veremos
+#como se resuelven 7 probelmas menores diferentes.
 
+#1. Personas que pusieron solo x
+#Solucion: Agregar un '0 al final
+yes <- c("5", "6", "5")
+no <- c("5'", "5''", "5'4")
+s <- c(yes, no)
+str_replace(s, "^([4-7])$", "\\1'0")
+#2. Personas que pusieron solo x'
+#Solucion: Agregar un 0 al final
+str_replace(s, "^([56])'?$", "\\1'0") #Solo usamos 5 y 6 porque es demasiado raro medir
+#justo 4 o justo 7 pies.
+#3. Personas que pusieron inches con decimales
+#Solucion: Cuando haggamos la correccion (linea 350) cambiamos el pattern.
+pattern <- "^[4-7]\\s*'\\s*(\\d+\\.?\\d*)$"
+#4. Personas que pusieron metros con comas.
+#Solucion: Convertir a puntos y borrar espacios
+yes <- c("1,7", "1, 8", "2, " )
+no <- c("5,8", "5,3,2", "1.7")
+s <- c(yes, no)
+str_replace(s, "^([12])\\s*,\\s*(\\d*)$", "\\1\\.\\2")
+#5. Personas que pusieron espacios al final.
+#Solucion: Trimearlos. Hay formula que lo hace automatico.
+str_trim("5 ' 9 ")
+#6. Personas que pusieron palabras y usaron mayusculas
+#Solucion: Convertir todo a minusculas
+s <- c("Five Feet Eight Inches")
+str_to_lower(s)
+#7. Personas que pusieron palabras en lugar de numeros.
+#Solucion: Funcion que convierte palabras a numeros.
+words_to_numbers <- function(s){
+  str_to_lower(s) %>%  
+    str_replace_all("zero", "0") %>%
+    str_replace_all("one", "1") %>%
+    str_replace_all("two", "2") %>%
+    str_replace_all("three", "3") %>%
+    str_replace_all("four", "4") %>%
+    str_replace_all("five", "5") %>%
+    str_replace_all("six", "6") %>%
+    str_replace_all("seven", "7") %>%
+    str_replace_all("eight", "8") %>%
+    str_replace_all("nine", "9") %>%
+    str_replace_all("ten", "10") %>%
+    str_replace_all("eleven", "11")
+}
 
+#AHORA PONEMOS ESTOS 7 CAMBIOS MAS EL PATTERN QUE YA TENIAMOS EN UNA SOLA FORMULA
+convert_format <- function(s){
+  s %>%
+    str_replace("feet|foot|ft", "'") %>% #convert feet symbols to '
+    str_replace_all("inches|in|''|\"|cm|and", "") %>%  #remove inches and other symbols
+    str_replace("^([4-7])\\s*[,\\.\\s+]\\s*(\\d*)$", "\\1'\\2") %>% #change x.y, x,y x y
+    str_replace("^([56])'?$", "\\1'0") %>% #add 0 when to 5 or 6
+    str_replace("^([12])\\s*,\\s*(\\d*)$", "\\1\\.\\2") %>% #change european decimal
+    str_trim() #remove extra space
+}
+
+#Y RESOLVEMOS NUESTROS PROBLEMAS
+converted <- problems %>% words_to_numbers %>% convert_format
+#Ya con esto nos quedan muy pocos problemas.
+remaining_problems <- converted[not_inches_or_cm(converted)]
+pattern <- "^[4-7]\\s*'\\s*\\d+\\.?\\d*$"
+index <- str_detect(remaining_problems, pattern)
+remaining_problems[!index]
+
+#El codigo completo quedaria asi:
+#Fijamos el pattern
+pattern <- "^([4-7])\\s*'\\s*(\\d+\\.?\\d*)$"
+#Ponemos los limites
+smallest <- 50
+tallest <- 84
+#Creamos un nuevo objeto new_heights
+new_heights <- reported_heights %>% 
+  mutate(original = height,  #Usamos las funciones que acabamos de crear
+         height = words_to_numbers(height) %>% convert_format()) %>% 
+  extract(height, c("feet", "inches"), regex = pattern, remove = FALSE) %>%  #extraemos los numeros
+  mutate_at(c("height", "feet", "inches"), as.numeric) %>% #guardamos como numeric
+  mutate(guess = 12*feet + inches) %>% #formula para convertir pies a pulgadas
+  mutate(height = case_when( #Que hacer en cada caso
+    !is.na(height) & between(height, smallest, tallest) ~ height, #inches 
+    !is.na(height) & between(height/2.54, smallest, tallest) ~ height/2.54, #centimeters
+    !is.na(height) & between(height*100/2.54, smallest, tallest) ~ height*100/2.54, #meters
+    !is.na(guess) & inches < 12 & between(guess, smallest, tallest) ~ guess, #feet'inches
+    TRUE ~ as.numeric(NA))) %>%
+  select(-guess)
+
+#Estas son todas las correciones que hicimos
+new_heights %>%
+  filter(not_inches(original)) %>%
+  select(original, height) %>% 
+  arrange(height) %>%
+  View()
+
+#Los mas chaparros
+new_heights %>% arrange(height) %>% head(n=7)
+#Otro tema muy comun en wrangling es string splitting. Empezamos con un ejemplo
+#Si leemos un CSV con la funcion que viene en R, tendriamos el texto de cada columna
+#acumulado en un solo string.
+filename <- system.file("extdata/murders.csv", package = "dslabs")
+lines <- readLines(filename)
+lines %>% head()
+#Queremos separar los valres con comas. La funcion str_split lo hace
+x <- str_split(lines, ",") 
+x %>% head()
+#Podemos separar la primera fila que era nombres de columnas
+col_names <- x[[1]]
+x <- x[-1]
+
+#Hay una funcion en la libreria purrr que nos ayuda a convertir esto en un data frame
+library(purrr)
+#Esto nos da la primera columna.
+map(x, function(y) y[1]) %>% head()
+#Tambien se puede escribir asi
+map(x,1) %>% head()
+#Para todas las columnas (con sus tipos de valor)
+dat <- data.frame(parse_guess(map_chr(x, 1)),
+                  parse_guess(map_chr(x, 2)),
+                  parse_guess(map_chr(x, 3)),
+                  parse_guess(map_chr(x, 4)),
+                  parse_guess(map_chr(x, 5))) %>%
+  setNames(col_names)
+dat %>% head
+
+# more efficient code for the same thing
+dat <- x %>%
+  transpose() %>%
+  map( ~ parse_guess(unlist(.))) %>%
+  setNames(col_names) %>% 
+  as.data.frame() 
+dat %>% head
+
+#Pero nos podemos evitar todo esto. Si le ponemos simplify a str_split
+#Con ese argumento nos devuleve ya una matriz en lugar de una lista.
+x <- str_split(lines, ",", simplify = TRUE) 
+col_names <- x[1,]
+x <- x[-1,]
+x %>% as_data_frame() %>%
+  setNames(col_names) %>%
+  mutate_all(parse_guess)
+
+#EJEMPLO DE SACAR DATOS DE UN PDF
+library("pdftools")
+temp_file <- tempfile()
+url <- "http://www.pnas.org/content/suppl/2015/09/16/1510159112.DCSupplemental/pnas.201510159SI.pdf"
+download.file(url, temp_file)
+txt <- pdf_text(temp_file)
+file.remove(temp_file)
+
+raw_data_research_funding_rates <- txt[2]
+#Igual los datos ya estan en dslabs
+data("raw_data_research_funding_rates")
+
+raw_data_research_funding_rates %>% head
+tab <- str_split(raw_data_research_funding_rates, "\n")
+tab <- tab[[1]]
+tab %>% head
+the_names_1 <- tab[3]
+the_names_2 <- tab[4]
+the_names_1
+
+the_names_1 <- the_names_1 %>%
+  str_trim() %>%
+  str_replace_all(",\\s.", "") %>%
+  str_split("\\s{2,}", simplify = TRUE)
+the_names_1
+
+the_names_2
+the_names_2 <- the_names_2 %>%
+  str_trim() %>%
+  str_split("\\s+", simplify = TRUE)
+the_names_2
+
+tmp_names <- str_c(rep(the_names_1, each = 3), the_names_2[-1], sep = "_")
+the_names <- c(the_names_2[1], tmp_names) %>%
+  str_to_lower() %>%
+  str_replace_all("\\s", "_")
+the_names
+
+new_research_funding_rates <- tab[6:14] %>%
+  str_trim %>%
+  str_split("\\s{2,}", simplify = TRUE) %>%
+  data.frame(stringsAsFactors = FALSE) %>%
+  setNames(the_names) %>%
+  mutate_at(-1, parse_number)
+new_research_funding_rates %>% head()
+
+identical(research_funding_rates, new_research_funding_rates)
+#No esta muy explicado, pero tampoco tiene nada nuevo.
+
+#Recoding es cambiar el nombre de categoricals
+#Para esto se puede usar el case_when que ya se introdujo antes o la funcion recode
+#Usemos un ejemplo.
+library(dslabs)
+data("gapminder")
+gapminder %>% 
+  filter(region=="Caribbean") %>%
+  ggplot(aes(year, life_expectancy, color = country)) +
+  geom_line()
+#Tenemos esta grafica con nombres de paises muy largos.
+gapminder %>% 
+  filter(region=="Caribbean") %>%
+  filter(str_length(country) >= 12) %>%
+  distinct(country) 
+#Recode nos ayuda a cambiar el nombre de paises a mas cortos
+gapminder %>% filter(region=="Caribbean") %>%
+  mutate(country = recode(country, 
+                          'Antigua and Barbuda'="Barbuda",
+                          'Dominican Republic' = "DR",
+                          'St. Vincent and the Grenadines' = "St. Vincent",
+                          'Trinidad and Tobago' = "Trinidad")) %>%
+  ggplot(aes(year, life_expectancy, color = country)) +
+  geom_line()
 
 
 
